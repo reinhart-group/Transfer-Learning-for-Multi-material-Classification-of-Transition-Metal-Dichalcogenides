@@ -216,20 +216,7 @@ def data_loader_weighted_multilabel(x, y, label_dict,transform, batch_size):
 
 
 
-def pred2class(predicted):
-    """the function bins the predicted value into the different classes"""
-    #predicted = predicted.tolist()
-    pred_class = []
-    for index, item in enumerate(predicted):
-        if item <= 925:# 0.5, 925
-            pred_class.append(900)
-        elif item <=975:# 1.5, 975
-            pred_class.append(950)
-        elif item >975:#1.5, 975
-            pred_class.append(1000)    
-    
-    return pred_class
-    
+   
 def data_loader_fn(x, y, transform, batch_size):
     target = np.array(y)
     data = np.array(x)
@@ -241,30 +228,6 @@ def data_loader_fn(x, y, transform, batch_size):
     sampler = WeightedRandomSampler(samples_weight, len(samples_weight))
     target = torch.from_numpy(target)
     data = torch.from_numpy(data)
-    #train_dataset = torch.utils.data.TensorDataset(data, target)
-
-    dataset = Dataset(data, target, transform)
-    
-    data_loader = DataLoader(
-        dataset, batch_size=batch_size, num_workers=1, sampler=sampler, drop_last=False)
-    
-    return data_loader
-
-
-def data_loader_reg(x, y, transform, batch_size):
-    target = np.array(y)
-    data = np.array(x)
-    labels_unique, class_sample_count = np.unique(target, return_counts=True)
-    class_dict = {900.0:0, 950.0:1, 1000.0:2}
-
-    weight = [sum(class_sample_count) / c for c in class_sample_count]
-
-
-    samples_weight = np.array([weight[class_dict[t]] for t in target])
-    sampler = WeightedRandomSampler(samples_weight, len(samples_weight))
-    target = np.array(target).reshape(len(target),1)
-    target = torch.tensor(target, dtype=torch.float32)
-    data = torch.tensor(data, dtype=torch.float32)
     #train_dataset = torch.utils.data.TensorDataset(data, target)
 
     dataset = Dataset(data, target, transform)
@@ -292,93 +255,8 @@ def data_loader_test_fn(x, y, transform, batch_size, multilabel=True):
     return data_loader
     
 
-def data_loader_test_reg(x, y, transform, batch_size):
-	y = np.array(y).reshape(len(y),1)
-	data = torch.tensor(x, dtype=torch.float32)
-	target = torch.tensor(y, dtype=torch.float32)
-	dataset = Dataset(data, target, transform)
+   
 
-	data_loader = DataLoader(dataset,  batch_size = batch_size, shuffle = False, drop_last=False)#, num_workers= 2)
-	return data_loader
-	
-	
-def data_loader_nnrak(x, y, transform, batch_size):
-    target = np.array(y)
-    data = np.array(x)
-    labels_unique, class_sample_count = np.unique(target, return_counts=True)
-    weight = [sum(class_sample_count) / c for c in class_sample_count]
-
-
-    samples_weight = np.array([weight[t] for t in target])
-    sampler = WeightedRandomSampler(samples_weight, len(samples_weight))
-    target = np.array(target).reshape(len(target),1)
-    target = torch.tensor(target, dtype=torch.float32)
-    data = torch.tensor(data, dtype=torch.float32)
-    #train_dataset = torch.utils.data.TensorDataset(data, target)
-
-    dataset = Dataset(data, target, transform)
-    
-    data_loader = DataLoader(
-        dataset, batch_size=batch_size, num_workers=1, sampler=sampler, drop_last=False)
-    
-    return data_loader
-    
-    
-def ordinal_loss(predictions, targets):
-    """Ordinal regression with encoding as in https://arxiv.org/pdf/0704.1028.pdf
-    
-    predictions: List[List[float]], targets: List[float]"""
-
-    # Create out modified target with [batch_size, num_labels] shape
-    modified_target = torch.zeros_like(predictions)
-
-    # Fill in ordinal target function, i.e. 0 -> [1,0,0,...]
-    for i, target in enumerate(targets):
-        target = int(target)
-        modified_target[i, 0:target+1] = 1
-    loss = nn.MSELoss(reduction='none')(predictions, modified_target).sum(axis=1)
-    loss = loss.sum()
-    return loss  
-    
-def nnrank2label(pred):
-    """Convert ordinal predictions to class labels, e.g.
-    
-    [0.9, 0.1, 0.1] -> 0
-    [0.60, 0.51, 0.1] -> 1
-    [0.7, 0.7, 0.9] -> 2
-    etc.
-    pred: np.ndarray
-    """
-    class_pred = (pred > 0.5).cumprod(axis=1).sum(axis=1) - 1
-    return class_pred   
-     
-    
-def accuracy_nnrank(trained_model, data_loader, data_type):
-	correct = 0
-	total = 0
-	trained_model.eval()
-	#with torch.no_grad():
-	for data in data_loader:
-		images, labels = data
-		images, labels = images.cuda(), labels.cuda()
-
-		outputs = trained_model(images)
-		outputs = nnrank2label(outputs)
-		labels =[np.rint(item)[0] for item in labels.cpu().numpy().tolist()]
-		outputs = [np.rint(item) for item in outputs.cpu().detach().numpy().tolist()]
-		for index, item in enumerate(labels):
-			if labels[index]==outputs[index]:
-	    			correct += 1
-			total += 1
-	accuracy = 100 * correct / total
-
-	print(f'Accuracy of the network on the {total} {data_type} images: {accuracy :.1f} %')
-
-	return accuracy
-	
-
-	      
-    	
 
 transform = transforms.Compose([
       transforms.ToPILImage(),
@@ -553,7 +431,7 @@ def train_multiclass_full(model, optimizer, criterion, epochs, model_path, train
     val_mean_abs_error_list = []
 
     maxval_f1score = 0.0
-    minval_loss = 10000000
+    minval_loss = float('inf')
     model_return = None
     best_weights = None
     performance_record = {'loss': [], 'val_loss': []}
@@ -878,7 +756,7 @@ def train_multilabel_full(model, optimizer, criterion, epochs, model_path, train
     val_mean_abs_error_list = []
 
     maxval_f1score = 0.0
-    minval_loss = 100000
+    minval_loss = float('inf')
     model_return = None
     best_weights = None
     performance_record = {'loss': [], 'val_loss': []}
@@ -1237,29 +1115,7 @@ def accuracy_classification(trained_model, data_loader, data_type):
     return accuracy
     
 
-def accuracy_regression(trained_model, data_loader, data_type):
-	correct = 0
-	total = 0
-	trained_model.eval()
-	#with torch.no_grad():
-	for data in data_loader:
-		images, labels = data
-		images, labels = images.cuda(), labels.cuda()
 
-		outputs = trained_model(images)
-		labels =[item for item in labels.cpu().numpy().tolist()]
-		outputs = [pred2class(item) for item in outputs.cpu().detach().numpy().tolist()]
-		for index, item in enumerate(labels):
-		    if labels[index]==outputs[index]:
-		    	correct += 1
-		    total += 1
-	accuracy = 100 * correct / total
-
-	#print(f'Accuracy of the network on the {total} {data_type} images: {accuracy :.1f} %')
-
-	return accuracy
-
-#acc = (y_pred.round() == y_batch).float().mean()    
         
 def f1score_cnn_fn(trained_model, data_loader, data_type):
     trained_model.eval()
@@ -1302,248 +1158,6 @@ def confusion_cnn_fn(trained_model, data_loader, data_type):
 
     return cm_test
 
-    
-
-def reg_confusion_cnn_fn(trained_model, data_loader, data_type):
-    correct = 0
-    total = 0
-    #trained_model.eval()
-    #with torch.no_grad():
-    for data in data_loader:
-        images, labels = data
-        images, labels = images.to(device), labels.to(device)
-
-        outputs = trained_model(images)
-
-        labels =[item for item in labels.cpu().numpy().tolist()]
-        outputs = [pred2class(item) for item in outputs.cpu().detach().numpy().tolist()]
-        cm_test = confusion_matrix(labels, outputs)
-        #print(f'{data_type} confusion matrix: {cm_test}')
-
-    return cm_test
-    
-
-def nnrank_confusion_cnn_fn(trained_model, data_loader, data_type):
-    #trained_model.eval()
-    Labels = []
-    Outputs = []
-    for data in data_loader:
-        images, labels = data
-        images, labels = images.cuda(), labels.cuda()
-        outputs = trained_model(images)
-        outputs = nnrank2label(outputs)
-        labels =[np.rint(item) for item in labels.cpu().numpy().tolist()]
-        outputs = [np.rint(item) for item in outputs.cpu().detach().numpy().tolist()]
-        Labels += labels
-        Outputs += outputs
-
-    cm_test = confusion_matrix(Labels, Outputs)
-    #print(f'confusion matrix: {cm_test}')
-
-    return cm_test
-        
-
-def rmse_cnn_fn(trained_model, data_loader, data_type):
-    trained_model.eval()
-    #with torch.no_grad():
-    for data in data_loader:
-        images, labels = data
-        images, labels = images.to(device), labels.to(device)
-
-        outputs = trained_model(images)
-
-        labels =[item for item in labels.cpu().numpy().tolist()]
-        outputs = [item for item in outputs.cpu().detach().numpy().tolist()]
-
-        rmse_test = np.sqrt(mean_squared_error(labels, outputs))
-        #print(f'{data_type} rmse: {rmse_test}')
-
-    return rmse_test
-
-
-
-def cnn_class_cross_val_final_test(trained_model, X, Y, data_type, root_path):
-    best_test = []
-    confusion_matrix_test = []
-    for fold in range(10):
-        
-        data_loader = data_loader_test_fn(X, Y, transform_test,batch_size=len(Y))
-        
-        
-        PATH = os.path.join('Models', root_path)
-        PATH = os.path.join(PATH, f'{fold}_model.pth')
-        trained_model.load_state_dict(torch.load(PATH))
-        trained_model.eval()
-        
-        acc_test = accuracy_classification(trained_model, data_loader, data_type)
-        cm_test = confusion_cnn_fn(trained_model, data_loader, data_type)
-        best_test.append(acc_test)
-        confusion_matrix_test.append(cm_test)
-    return best_test, confusion_matrix_test    
-    
-    
-def cnn_reg_cross_val_final_test(trained_model, X, Y, data_type, root_path):
-	best_test = []
-	confusion_matrix_test = []
-	rmse_test_folds = []
-	for fold in range(10):
-        
-		data_loader = data_loader_test_reg(X, Y, transform_test,batch_size=len(Y))
-
-
-		PATH = os.path.join('Models', root_path)
-		PATH = os.path.join(PATH, f'{fold}_model.pth')
-		trained_model.load_state_dict(torch.load(PATH))
-		trained_model.eval()
-
-		acc_test = accuracy_regression(trained_model, data_loader, data_type)
-		cm_test = reg_confusion_cnn_fn(trained_model, data_loader, data_type)
-		rmse_test = rmse_cnn_fn(trained_model, data_loader, data_type)
-
-		best_test.append(acc_test)
-		confusion_matrix_test.append(cm_test)
-		rmse_test_folds.append(rmse_test)
-	
-	return best_test, confusion_matrix_test, rmse_test_folds
-	
-	
-def cnn_nnrank_cross_val_final_test(trained_model, X, Y, data_type, root_path):
-    best_test = []
-    confusion_matrix_test = []
-    for fold in range(10):
-        
-        data_loader = data_loader_test_reg(X, Y, transform_test,batch_size=len(Y))
-        
-        
-        PATH = os.path.join('Models', root_path)
-        PATH = os.path.join(PATH, f'{fold}_model.pth')
-        trained_model.load_state_dict(torch.load(PATH))
-        trained_model.eval()
-        
-        acc_test = accuracy_nnrank(trained_model, data_loader, data_type)
-        cm_test = nnrank_confusion_cnn_fn(trained_model, data_loader, data_type)
-        best_test.append(acc_test)
-        confusion_matrix_test.append(cm_test)
-    return best_test, confusion_matrix_test    	
-    
-    
-def mlp_class_cross_val_final_test(trained_model, X, Y, data_type, root_path):
-    best_test = []
-    confusion_matrix_test = []
-    for fold in range(10):
-        
-        data_loader = data_loader_mlp(X, Y, batch_size=len(Y), shuffle=False, drop_last=False)
-        
-        
-        PATH = os.path.join('Models', root_path)
-        PATH = os.path.join(PATH, f'{fold}_model.pth')
-        trained_model.load_state_dict(torch.load(PATH))
-        trained_model.eval()
-        
-        acc_test = accuracy_classification(trained_model, data_loader, data_type)
-        cm_test = confusion_cnn_fn(trained_model, data_loader, data_type)
-        best_test.append(acc_test)
-        confusion_matrix_test.append(cm_test)
-    return best_test, confusion_matrix_test
-    
-    
-def mlp_nnrank_cross_val_final_test(trained_model, X, Y, data_type, root_path):
-    best_test = []
-    confusion_matrix_test = []
-    for fold in range(10):
-        
-        data_loader = data_loader_mlp_reg(X, Y, batch_size=len(Y), shuffle=False, drop_last=False)
-        
-        
-        PATH = os.path.join('Models', root_path)
-        PATH = os.path.join(PATH, f'{fold}_model.pth')
-        trained_model.load_state_dict(torch.load(PATH))
-        trained_model.eval()
-        
-        acc_test = accuracy_nnrank(trained_model, data_loader, data_type)
-        cm_test = nnrank_confusion_cnn_fn(trained_model, data_loader, data_type)
-        best_test.append(acc_test)
-        confusion_matrix_test.append(cm_test)
-    return best_test, confusion_matrix_test    	    
-    
-
-def mlp_reg_cross_val_final_test(trained_model, X, Y, data_type, root_path):
-	best_test = []
-	confusion_matrix_test = []
-	rmse_test_folds = []
-	for fold in range(10):
-        
-		data_loader = data_loader_mlp_reg(X, Y, batch_size=len(Y), shuffle=False, drop_last=False)
-
-
-		PATH = os.path.join('Models', root_path)
-		PATH = os.path.join(PATH, f'{fold}_model.pth')
-		trained_model.load_state_dict(torch.load(PATH))
-		trained_model.eval()
-
-		acc_test = accuracy_regression(trained_model, data_loader, data_type)
-		cm_test = reg_confusion_cnn_fn(trained_model, data_loader, data_type)
-		rmse_test = rmse_cnn_fn(trained_model, data_loader, data_type)
-
-		best_test.append(acc_test)
-		confusion_matrix_test.append(cm_test)
-		rmse_test_folds.append(rmse_test)
-	
-	return best_test, confusion_matrix_test, rmse_test_folds             
-            
-
-        
-def model_test_regression(train_val_X, train_val_Y, train_val_groups,test_X, test_Y, best_fold, model_path):
-    best_test = []
-    root_mean_squared_error = []
-    confusion_matrix_test = []
-    
-    for fold in range(10):
-        
-        group, train_X, train_Y, val_X, val_Y = stratified_train_test_group_kfold(train_val_X, train_val_Y, train_val_groups, n_splits=10, test_fold=fold)
-        train_X, train_Y = oversample.fit_resample(train_X, train_Y)
-        
-        PATH = os.path.join('Models', model_path)
-        loaded_model = pickle.load(open(PATH, 'rb'))
-        loaded_model.fit(train_X, train_Y)
-        pred_test_Y =loaded_model.predict(test_X)        
-        rmse = np.sqrt(mean_squared_error(test_Y, pred_test_Y))
-        pred_test_Y =pred2class(pred_test_Y)
-        cm_test = confusion_matrix(test_Y, pred_test_Y)
-        acc_test = accuracy_score(test_Y, pred_test_Y)
-        
-        best_test.append(acc_test)
-        root_mean_squared_error.append(rmse)
-        confusion_matrix_test.append(cm_test)
-    
-    return best_test, root_mean_squared_error, confusion_matrix_test
-    
-
-    
-def model_test_classification(train_val_X, train_val_Y, train_val_groups,test_X, test_Y, best_fold, model_path):
-    best_test = []
-    confusion_matrix_test = []
-
-    for fold in range(10):
-        
-        group, train_X, train_Y, val_X, val_Y = stratified_train_test_group_kfold(train_val_X, train_val_Y, train_val_groups, n_splits=10, test_fold=fold)
-        train_X, train_Y = oversample.fit_resample(train_X, train_Y)
-        
-        PATH = os.path.join('Models', model_path)
-        loaded_model = pickle.load(open(PATH, 'rb'))
-        loaded_model.fit(train_X, train_Y)
-        pred_test_Y = loaded_model.predict(test_X)
-        pred_val_Y = loaded_model.predict(val_X)
-        pred_train_Y = loaded_model.predict(train_X)
-
-
-        cm_test = confusion_matrix(test_Y, pred_test_Y)
-        acc_test = accuracy_score(test_Y, pred_test_Y)
-
-        best_test.append(acc_test)
-        confusion_matrix_test.append(cm_test)
-    
-    return best_test, confusion_matrix_test
         
         
 
